@@ -1,0 +1,149 @@
+/* AirTune — Apple-inspired dark theme */
+
+window {
+    background-color: #000000;
+    color: #ffffff;
+}
+
+/* ── Device list ── */
+.device-list {
+    background-color: #1c1c1e;
+    border-radius: 12px;
+    padding: 2px 0;
+}
+
+.device-list row {
+    background: transparent;
+    padding: 0;
+    border-radius: 10px;
+}
+
+.device-list row:hover {
+    background-color: rgba(120, 120, 128, 0.16);
+}
+
+.device-row {
+    padding: 12px 16px;
+    border-radius: 10px;
+    margin: 1px 4px;
+}
+
+.pair-row {
+    background-color: rgba(120, 120, 128, 0.08);
+}
+
+.device-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.device-info {
+    font-size: 12px;
+    font-weight: 400;
+    color: #8e8e93;
+}
+
+/* ── Buttons ── */
+.connect-btn {
+    background: #0a84ff;
+    color: #ffffff;
+    border-radius: 14px;
+    padding: 5px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    box-shadow: none;
+    border: none;
+}
+
+.connect-btn:hover {
+    background: #409cff;
+}
+
+.disconnect-btn {
+    background: #ff453a;
+    color: #ffffff;
+    border-radius: 14px;
+    padding: 5px 16px;
+    font-weight: 600;
+    font-size: 13px;
+    box-shadow: none;
+    border: none;
+}
+
+.disconnect-btn:hover {
+    background: #ff6961;
+}
+
+/* ── Controls ── */
+.controls-box {
+    background-color: #1c1c1e;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 12px;
+}
+
+.play-btn {
+    background: #0a84ff;
+    color: #ffffff;
+    border-radius: 22px;
+    padding: 10px 32px;
+    font-size: 15px;
+    font-weight: 600;
+    box-shadow: none;
+    border: none;
+}
+
+.play-btn:hover {
+    background: #409cff;
+}
+
+/* ── Volume slider ── */
+scale trough {
+    background-color: #38383a;
+    border-radius: 4px;
+    min-height: 4px;
+}
+
+scale trough highlight {
+    background-color: #0a84ff;
+    border-radius: 4px;
+    min-height: 4px;
+}
+
+scale slider {
+    background-color: #ffffff;
+    border-radius: 50%;
+    min-width: 18px;
+    min-height: 18px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Channel dropdown ── */
+.channel-drop {
+    font-size: 13px;
+    background-color: #2c2c2e;
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 2px 8px;
+    border: none;
+}
+
+/* ── Title & status ── */
+.title-label {
+    font-size: 28px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.status-label {
+    font-size: 13px;
+    font-weight: 400;
+    color: #8e8e93;
+}
+
+/* ── Visualizer ── */
+.visualizer {
+    background-color: #1c1c1e;
+    border-radius: 10px;
+}
