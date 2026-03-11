@@ -301,18 +301,24 @@ func (dl *DeviceList) addPairRow(pairID, groupName string, leader, secondary dis
 
 	button.ConnectClicked(func() {
 		if row.connected {
-			dl.manager.DisconnectDevice(leftID)
-			dl.manager.DisconnectDevice(rightID)
+			go func() {
+				dl.manager.DisconnectDevice(leftID)
+				dl.manager.DisconnectDevice(rightID)
+			}()
 		} else {
 			// Auto-assign L/R and connect both
 			dl.manager.SetChannelMode(leftID, audio.ChannelLeft)
 			dl.manager.SetChannelMode(rightID, audio.ChannelRight)
-			if err := dl.manager.ConnectDevice(leftID); err != nil {
-				log.Printf("ui: connect L (%s) error: %v", leader.Name, err)
-			}
-			if err := dl.manager.ConnectDevice(rightID); err != nil {
-				log.Printf("ui: connect R (%s) error: %v", secondary.Name, err)
-			}
+			go func() {
+				if err := dl.manager.ConnectDevice(leftID); err != nil {
+					log.Printf("ui: connect L (%s) error: %v", leader.Name, err)
+				}
+			}()
+			go func() {
+				if err := dl.manager.ConnectDevice(rightID); err != nil {
+					log.Printf("ui: connect R (%s) error: %v", secondary.Name, err)
+				}
+			}()
 		}
 	})
 

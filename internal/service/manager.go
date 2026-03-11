@@ -210,10 +210,10 @@ func (m *Manager) Devices() []discovery.AirPlayDevice {
 // ConnectDevice connects to the AirPlay device with the given ID.
 func (m *Manager) ConnectDevice(id string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	// Check if already connected
 	if _, ok := m.sessions[id]; ok {
+		m.mu.Unlock()
 		return fmt.Errorf("device %s already connected", id)
 	}
 
@@ -226,22 +226,28 @@ func (m *Manager) ConnectDevice(id string) error {
 		}
 	}
 	if dev == nil {
+		m.mu.Unlock()
 		return fmt.Errorf("device %s not found", id)
 	}
+
+	// Snapshot device info before releasing the lock
+	devCopy := *dev
 
 	// Ensure pipeline is running
 	if m.pipeline == nil {
 		capturer := m.createCapturer()
 		p := audio.NewPipeline(m.encoder, capturer)
 		if err := p.Start(m.ctx); err != nil {
+			m.mu.Unlock()
 			return fmt.Errorf("start pipeline: %w", err)
 		}
 		m.pipeline = p
 	}
 
-	// Create and connect session
+	// Create session while holding the lock (reads encoder + ctx)
 	enc := m.encoder
-	session := raop.NewSession(dev.Host, dev.Port, enc.CodecName(), enc.FmtpLine(), dev.SupportsEncryption())
+	ctx := m.ctx
+	session := raop.NewSession(devCopy.Host, devCopy.Port, enc.CodecName(), enc.FmtpLine(), devCopy.SupportsEncryption())
 	session.OnStateChange(func(state raop.SessionState) {
 		m.emit(Event{
 			Type:         EventSessionState,
@@ -250,11 +256,25 @@ func (m *Manager) ConnectDevice(id string) error {
 		})
 	})
 
-	sessionCtx, sessionCancel := context.WithCancel(m.ctx)
+	sessionCtx, sessionCancel := context.WithCancel(ctx)
+
+	// Release the lock during the blocking RTSP handshake so other
+	// operations (volume sync, discovery, UI) aren't starved.
+	m.mu.Unlock()
 
 	if err := session.Connect(sessionCtx); err != nil {
 		sessionCancel()
-		return fmt.Errorf("connect to %s: %w", dev.Name, err)
+		return fmt.Errorf("connect to %s: %w", devCopy.Name, err)
+	}
+
+	// Re-acquire lock to register the session
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if device was disconnected/removed while we were connecting
+	if _, ok := m.sessions[id]; ok {
+		sessionCancel()
+		return fmt.Errorf("device %s already connected (race)", id)
 	}
 
 	// Emit latency event so the UI/app can compensate (e.g. delay video).
@@ -263,11 +283,11 @@ func (m *Manager) ConnectDevice(id string) error {
 		DeviceID: id,
 		Latency:  session.LatencyDuration(),
 	})
-	log.Printf("manager: device %s audio latency: %v", dev.Name, session.LatencyDuration())
+	log.Printf("manager: device %s audio latency: %v", devCopy.Name, session.LatencyDuration())
 
 	m.sessions[id] = &deviceSession{
 		session: session,
-		device:  *dev,
+		device:  devCopy,
 		cancel:  sessionCancel,
 	}
 
@@ -293,7 +313,7 @@ func (m *Manager) ConnectDevice(id string) error {
 		m.mu.Lock()
 		m.updateAVSyncLatency()
 		m.mu.Unlock()
-		log.Printf("manager: device %s refined latency: %v", dev.Name, session.LatencyDuration())
+		log.Printf("manager: device %s refined latency: %v", devCopy.Name, session.LatencyDuration())
 	}()
 
 	// Sync the device's volume with the current Windows system volume.

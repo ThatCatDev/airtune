@@ -19,7 +19,7 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
 	// Log to file + in-memory ring buffer for the dev console
-	logFile, err := os.OpenFile("airtune.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	logFile, err := os.OpenFile("airtune.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err == nil {
 		log.SetOutput(io.MultiWriter(os.Stderr, logFile, ui.LogBuffer()))
 		defer logFile.Close()

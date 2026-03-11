@@ -224,6 +224,10 @@ func (c *RTSPClient) sendRequest(method, uri string, headers map[string]string, 
 		return nil, fmt.Errorf("rtsp write %s: %w", method, err)
 	}
 
+	// Set a read deadline so we don't hang forever if the device doesn't respond
+	c.conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	defer c.conn.SetReadDeadline(time.Time{})
+
 	// Read response
 	return c.readResponse()
 }

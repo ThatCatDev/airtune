@@ -14,6 +14,7 @@ type DevConsole struct {
 	Expander *gtk.Expander
 	textView *gtk.TextView
 	buffer   *gtk.TextBuffer
+	endMark  *gtk.TextMark
 }
 
 // NewDevConsole creates the dev console widget.
@@ -21,6 +22,9 @@ func NewDevConsole() *DevConsole {
 	dc := &DevConsole{}
 
 	dc.buffer = gtk.NewTextBuffer(nil)
+	// Create a mark at the end of the buffer for reliable auto-scroll
+	endIter := dc.buffer.EndIter()
+	dc.endMark = dc.buffer.CreateMark("end", endIter, false)
 	dc.textView = gtk.NewTextViewWithBuffer(dc.buffer)
 	dc.textView.SetEditable(false)
 	dc.textView.SetCursorVisible(false)
@@ -57,7 +61,6 @@ func (dc *DevConsole) refresh() {
 	lines := globalLogBuffer.Lines()
 	dc.buffer.SetText(strings.Join(lines, "\n"))
 
-	// Auto-scroll to bottom
-	endIter := dc.buffer.EndIter()
-	dc.textView.ScrollToIter(endIter, 0, true, 0, 1.0)
+	// Auto-scroll to bottom using the end mark (more reliable than ScrollToIter)
+	dc.textView.ScrollToMark(dc.endMark, 0, true, 0, 1.0)
 }
