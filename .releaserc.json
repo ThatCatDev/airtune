@@ -16,7 +16,12 @@
           {
             "path": "airtune-v*-windows-x64.zip",
             "name": "airtune-v${nextRelease.version}-windows-x64.zip",
-            "label": "AirTune (Windows x64)"
+            "label": "AirTune Portable (Windows x64)"
+          },
+          {
+            "path": "airtune-setup-v*.exe",
+            "name": "airtune-setup-v${nextRelease.version}.exe",
+            "label": "AirTune Installer (Windows x64)"
           }
         ]
       }

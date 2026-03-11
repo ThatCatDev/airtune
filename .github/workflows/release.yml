@@ -32,6 +32,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
       - name: Install semantic-release
         run: npm install -g semantic-release @semantic-release/exec @semantic-release/changelog @semantic-release/git
 
@@ -51,6 +54,7 @@ jobs:
           export PATH="/mingw64/bin:$PATH"
           CGO_ENABLED=1 go build -ldflags "-s -w -X main.version=v${VERSION} -H windowsgui" -o bundle/airtune.exe .
           rm -f bundle/*.log
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" /DAppVersion=${VERSION} installer/airtune.iss
           cd bundle && 7z a -tzip "../airtune-v${VERSION}-windows-x64.zip" . && cd ..
           SCRIPT
           chmod +x build-release.sh
