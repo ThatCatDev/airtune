@@ -23,9 +23,9 @@ Source: "..\bundle\lib\*"; DestDir: "{app}\lib"; Flags: ignoreversion recursesub
 Source: "..\bundle\share\*"; DestDir: "{app}\share"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\AirTune"; Filename: "{app}\airtune.exe"
+Name: "{group}\AirTune"; Filename: "{app}\airtune.exe"; WorkingDir: "{app}"
 Name: "{group}\Uninstall AirTune"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\AirTune"; Filename: "{app}\airtune.exe"; Tasks: desktopicon
+Name: "{autodesktop}\AirTune"; Filename: "{app}\airtune.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
