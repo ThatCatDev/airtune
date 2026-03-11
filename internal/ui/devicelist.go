@@ -396,11 +396,13 @@ func (dl *DeviceList) addDeviceRow(dev discovery.AirPlayDevice) {
 
 	button.ConnectClicked(func() {
 		if row.connected {
-			dl.manager.DisconnectDevice(deviceID)
+			go dl.manager.DisconnectDevice(deviceID)
 		} else {
-			if err := dl.manager.ConnectDevice(deviceID); err != nil {
-				log.Printf("ui: connect error: %v", err)
-			}
+			go func() {
+				if err := dl.manager.ConnectDevice(deviceID); err != nil {
+					log.Printf("ui: connect error: %v", err)
+				}
+			}()
 		}
 	})
 
