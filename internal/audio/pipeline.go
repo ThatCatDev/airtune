@@ -30,7 +30,7 @@ type subscriber struct {
 }
 
 // NewPipeline creates a new audio pipeline.
-// capturer provides the audio source (e.g. WASAPI loopback or virtual driver).
+// capturer provides the audio source (WASAPI loopback).
 func NewPipeline(encoder codec.Encoder, capturer Capturer) *Pipeline {
 	return &Pipeline{
 		capturer:    capturer,
@@ -133,13 +133,32 @@ func (p *Pipeline) processLoop(ctx context.Context, rawCh <-chan AudioChunk) {
 	packetBytes := AirPlayFormat.FramesPerPkt * AirPlayFormat.FrameSize // 352 * 4 = 1408
 	var accumBuf []byte
 
+	var diagChunks int
+	var diagNonSilent int
+	diagTicker := time.NewTicker(3 * time.Second)
+	defer diagTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-diagTicker.C:
+			log.Printf("pipeline: diag: %d chunks received, %d non-silent", diagChunks, diagNonSilent)
+			diagChunks = 0
+			diagNonSilent = 0
+			continue
 		case chunk, ok := <-rawCh:
 			if !ok {
 				return
+			}
+
+			// Diagnostic: check if chunk has non-zero data
+			diagChunks++
+			for i := 0; i < len(chunk.Data); i++ {
+				if chunk.Data[i] != 0 {
+					diagNonSilent++
+					break
+				}
 			}
 
 			// Convert to 16-bit PCM first — WASAPI captures in 32-bit float

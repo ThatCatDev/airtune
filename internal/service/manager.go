@@ -41,8 +41,13 @@ type Manager struct {
 	audioDevice string
 
 	// Current system volume (0.0–1.0), synced from Windows
-	sysVolume float32
-	sysMuted  bool
+	sysVolume    float32
+	sysMuted     bool
+	volReady     bool // true after first system volume reading
+
+	// A/V sync: hooks IAudioClock::GetPosition() system-wide to delay video
+	avSync     bool
+	avSyncHook *audio.AVSyncHook
 }
 
 type deviceSession struct {
@@ -55,11 +60,13 @@ type deviceSession struct {
 func NewManager() *Manager {
 	cfg := LoadConfig()
 	m := &Manager{
-		events:        make(chan Event, 64),
-		sessions:      make(map[string]*deviceSession),
-		encoder:       codec.NewPCMEncoder(),
+		events:       make(chan Event, 64),
+		sessions:     make(map[string]*deviceSession),
+		encoder:      codec.NewPCMEncoder(),
 		channelModes: make(map[string]audio.ChannelMode),
 		audioDevice:  cfg.AudioDevice,
+		avSync:       cfg.AVSync,
+		avSyncHook:   audio.NewAVSyncHook(),
 	}
 	for id, mode := range cfg.ChannelModes {
 		m.channelModes[id] = mode
@@ -101,6 +108,46 @@ func (m *Manager) Start(ctx context.Context) {
 	log.Println("manager: started")
 }
 
+// RefreshDevices restarts the mDNS browser to re-discover devices.
+func (m *Manager) RefreshDevices() {
+	log.Println("manager: refreshing device discovery")
+	m.mu.Lock()
+	oldBrowser := m.browser
+	m.mu.Unlock()
+
+	// Stop old browser
+	if oldBrowser != nil {
+		oldBrowser.Stop()
+	}
+
+	// Clear device list
+	m.mu.Lock()
+	m.devices = nil
+	m.mu.Unlock()
+	m.emit(Event{Type: EventDevicesChanged, Devices: nil})
+
+	// Start new browser
+	newBrowser := discovery.NewBrowser(func(devices []discovery.AirPlayDevice) {
+		m.mu.Lock()
+		m.devices = devices
+		m.mu.Unlock()
+		m.emit(Event{
+			Type:    EventDevicesChanged,
+			Devices: devices,
+		})
+	})
+
+	m.mu.Lock()
+	m.browser = newBrowser
+	m.mu.Unlock()
+
+	go func() {
+		if err := newBrowser.Start(m.ctx); err != nil {
+			log.Printf("manager: discovery error: %v", err)
+		}
+	}()
+}
+
 // syncSystemVolume reads system volume changes and forwards them to all
 // connected AirPlay devices.
 func (m *Manager) syncSystemVolume(volCh <-chan audio.VolumeChange) {
@@ -108,6 +155,7 @@ func (m *Manager) syncSystemVolume(volCh <-chan audio.VolumeChange) {
 		m.mu.Lock()
 		m.sysVolume = vc.Level
 		m.sysMuted = vc.Muted
+		m.volReady = true
 		// Snapshot current sessions
 		sessions := make([]*deviceSession, 0, len(m.sessions))
 		for _, ds := range m.sessions {
@@ -132,6 +180,9 @@ func (m *Manager) syncSystemVolume(volCh <-chan audio.VolumeChange) {
 
 // Stop shuts down the manager, disconnecting all devices.
 func (m *Manager) Stop() {
+	// Disable A/V sync hook if active
+	m.avSyncHook.Disable()
+
 	m.mu.Lock()
 	for id := range m.sessions {
 		m.disconnectLocked(id)
@@ -180,7 +231,8 @@ func (m *Manager) ConnectDevice(id string) error {
 
 	// Ensure pipeline is running
 	if m.pipeline == nil {
-		p := audio.NewPipeline(m.encoder, audio.NewWASAPILoopbackCapturer(m.audioDevice))
+		capturer := m.createCapturer()
+		p := audio.NewPipeline(m.encoder, capturer)
 		if err := p.Start(m.ctx); err != nil {
 			return fmt.Errorf("start pipeline: %w", err)
 		}
@@ -219,6 +271,9 @@ func (m *Manager) ConnectDevice(id string) error {
 		cancel:  sessionCancel,
 	}
 
+	// Update A/V sync hook with latest latency
+	m.updateAVSyncLatency()
+
 	// Subscribe to audio pipeline with the device's channel mode
 	chMode := m.channelModes[id] // defaults to ChannelBoth (0)
 	audioCh := m.pipeline.Subscribe(id, chMode)
@@ -226,15 +281,34 @@ func (m *Manager) ConnectDevice(id string) error {
 	// Start streaming in a goroutine
 	go session.Start(audioCh)
 
+	// Periodically update driver latency as NTP RTT measurements refine the estimate.
+	// Runs until the session context is cancelled (disconnect).
+	go func() {
+		// Wait for first RTT measurement, then update once
+		select {
+		case <-time.After(5 * time.Second):
+		case <-sessionCtx.Done():
+			return
+		}
+		m.mu.Lock()
+		m.updateAVSyncLatency()
+		m.mu.Unlock()
+		log.Printf("manager: device %s refined latency: %v", dev.Name, session.LatencyDuration())
+	}()
+
 	// Sync the device's volume with the current Windows system volume.
-	var db float64
-	if m.sysMuted || m.sysVolume < 0.001 {
-		db = -144
-	} else {
-		db = raop.LinearToAirPlay(float64(m.sysVolume))
-	}
-	if err := session.SetVolume(db); err != nil {
-		log.Printf("manager: set initial volume: %v", err)
+	// Only set if we've received at least one reading from the OS;
+	// otherwise the volume sync goroutine will push it momentarily.
+	if m.volReady {
+		var db float64
+		if m.sysMuted || m.sysVolume < 0.001 {
+			db = -144
+		} else {
+			db = raop.LinearToAirPlay(float64(m.sysVolume))
+		}
+		if err := session.SetVolume(db); err != nil {
+			log.Printf("manager: set initial volume: %v", err)
+		}
 	}
 
 	m.updateAppState()
@@ -262,6 +336,9 @@ func (m *Manager) disconnectLocked(id string) {
 	ds.cancel()
 	ds.session.Close()
 	delete(m.sessions, id)
+
+	// Recalculate A/V sync latency after session removal
+	m.updateAVSyncLatency()
 
 	log.Printf("manager: disconnected device %s", id)
 }
@@ -363,6 +440,65 @@ func (m *Manager) GetChannelMode(id string) audio.ChannelMode {
 	return m.channelModes[id]
 }
 
+// AVSync returns whether A/V sync mode is enabled.
+func (m *Manager) AVSync() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.avSync
+}
+
+// SetAVSync enables or disables A/V sync mode.
+// When enabled: hooks IAudioClock::GetPosition() system-wide so video renderers
+// see a delayed audio position and hold video frames to match AirPlay latency.
+func (m *Manager) SetAVSync(enabled bool) {
+	m.mu.Lock()
+	if m.avSync == enabled {
+		m.mu.Unlock()
+		return
+	}
+	m.avSync = enabled
+	m.mu.Unlock()
+
+	if enabled {
+		m.enableAVSync()
+	} else {
+		m.disableAVSync()
+	}
+
+	m.emit(Event{Type: EventAVSync, AVSync: enabled})
+	go m.saveConfig()
+}
+
+func (m *Manager) enableAVSync() {
+	// Calculate latency from connected sessions
+	m.mu.Lock()
+	latencyHNS := m.maxSessionLatencyHNS()
+	m.mu.Unlock()
+
+	if latencyHNS == 0 {
+		// No sessions connected yet — use a default estimate.
+		// Will be updated when a device connects.
+		latencyHNS = 5000000 // 500ms default
+		log.Println("manager: A/V sync: no sessions connected, using 500ms default latency")
+	}
+
+	if err := m.avSyncHook.Enable(latencyHNS); err != nil {
+		log.Printf("manager: A/V sync: enable hook: %v", err)
+		m.mu.Lock()
+		m.avSync = false
+		m.mu.Unlock()
+		m.emit(Event{Type: EventError, Error: fmt.Errorf("A/V sync hook failed: %v", err)})
+		return
+	}
+
+	log.Printf("manager: A/V sync enabled — hook active, latency=%dms", latencyHNS/10000)
+}
+
+func (m *Manager) disableAVSync() {
+	m.avSyncHook.Disable()
+	log.Println("manager: A/V sync disabled — hook removed")
+}
+
 // PlayPause toggles play/pause for all connected devices.
 func (m *Manager) PlayPause() {
 	m.mu.Lock()
@@ -413,14 +549,48 @@ func (m *Manager) updateAppState() {
 func (m *Manager) saveConfig() {
 	m.mu.Lock()
 	cfg := Config{
-		ChannelModes: make(map[string]audio.ChannelMode, len(m.channelModes)),
-		AudioDevice:  m.audioDevice,
+		ChannelModes:  make(map[string]audio.ChannelMode, len(m.channelModes)),
+		AudioDevice: m.audioDevice,
+		AVSync:      m.avSync,
 	}
 	for id, mode := range m.channelModes {
 		cfg.ChannelModes[id] = mode
 	}
 	m.mu.Unlock()
 	SaveConfig(cfg)
+}
+
+// createCapturer returns a WASAPI loopback capturer for the configured device.
+// Must be called with m.mu held.
+func (m *Manager) createCapturer() audio.Capturer {
+	return audio.NewWASAPILoopbackCapturer(m.audioDevice)
+}
+
+// maxSessionLatencyHNS returns the maximum latency across all connected sessions
+// in 100-nanosecond units. Must be called with m.mu held.
+func (m *Manager) maxSessionLatencyHNS() int64 {
+	var maxLatency time.Duration
+	for _, ds := range m.sessions {
+		lat := ds.session.LatencyDuration()
+		if lat > maxLatency {
+			maxLatency = lat
+		}
+	}
+	// Convert to 100-nanosecond units
+	return maxLatency.Nanoseconds() / 100
+}
+
+// updateAVSyncLatency pushes the current max session latency to the hook.
+// Must be called with m.mu held.
+func (m *Manager) updateAVSyncLatency() {
+	if !m.avSync {
+		return
+	}
+	hns := m.maxSessionLatencyHNS()
+	if hns > 0 {
+		m.avSyncHook.SetLatency(hns)
+		log.Printf("manager: A/V sync latency updated to %dms", hns/10000)
+	}
 }
 
 func (m *Manager) emit(evt Event) {

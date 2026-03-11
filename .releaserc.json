@@ -1,0 +1,25 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "bash build-release.sh ${nextRelease.version}"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "airtune-v*-windows-x64.zip",
+            "name": "airtune-v${nextRelease.version}-windows-x64.zip",
+            "label": "AirTune (Windows x64)"
+          }
+        ]
+      }
+    ]
+  ]
+}

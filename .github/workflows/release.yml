@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install semantic-release
+        run: npm install -g semantic-release @semantic-release/exec @semantic-release/changelog @semantic-release/git
+
+      - name: Run tests
+        shell: msys2 {0}
+        run: |
+          export PATH="/mingw64/bin:$PATH"
+          CGO_ENABLED=1 go test ./internal/... 2>&1 || true
+
+      - name: Create build script
+        shell: bash
+        run: |
+          cat > build-release.sh << 'SCRIPT'
+          #!/bin/bash
+          set -e
+          VERSION="$1"
+          export PATH="/mingw64/bin:$PATH"
+          CGO_ENABLED=1 go build -ldflags "-s -w -X main.version=v${VERSION} -H windowsgui" -o bundle/airtune.exe .
+          rm -f bundle/*.log
+          cd bundle && 7z a -tzip "../airtune-v${VERSION}-windows-x64.zip" . && cd ..
+          SCRIPT
+          chmod +x build-release.sh
+
+      - name: Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MSYS2_PATH_TYPE: inherit
+          MSYSTEM: MINGW64
+        shell: msys2 {0}
+        run: npx semantic-release

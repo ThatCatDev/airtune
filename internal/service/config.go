@@ -13,6 +13,7 @@ import (
 type Config struct {
 	ChannelModes  map[string]audio.ChannelMode `json:"channel_modes,omitempty"`  // keyed by device ID
 	AudioDevice string `json:"audio_device,omitempty"` // WASAPI device ID for capture
+	AVSync      bool   `json:"av_sync,omitempty"`      // enable A/V sync (hooks IAudioClock to delay video)
 }
 
 // DefaultConfig returns the default configuration.

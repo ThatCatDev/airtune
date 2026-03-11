@@ -72,6 +72,45 @@ window {
     font-size: 13px;
 }
 
+/* ── Splash screen ── */
+.splash-title {
+    font-size: 34px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.splash-version {
+    font-size: 13px;
+    font-weight: 400;
+    color: rgba(235, 235, 245, 0.40);
+}
+
+.splash-status {
+    font-size: 13px;
+    font-weight: 400;
+    color: rgba(235, 235, 245, 0.60);
+}
+
+/* ── Dev console ── */
+.dev-expander {
+    margin-top: 8px;
+    color: rgba(235, 235, 245, 0.40);
+    font-size: 12px;
+}
+
+.dev-console {
+    background-color: #1c1c1e;
+    border-radius: 8px;
+    margin-top: 4px;
+}
+
+.dev-console-text {
+    background-color: transparent;
+    color: rgba(48, 209, 88, 0.85);
+    font-size: 11px;
+    padding: 8px;
+}
+
 /* ── Grouped list (iOS Settings / Home app style) ── */
 .device-list {
     background-color: #1c1c1e;
@@ -232,6 +271,22 @@ window {
 .visualizer {
     background-color: #1c1c1e;
     border-radius: 10px;
+}
+
+/* ── Refresh button ── */
+.refresh-btn {
+    background: transparent;
+    border: none;
+    color: rgba(235, 235, 245, 0.60);
+    padding: 4px;
+    border-radius: 6px;
+    min-height: 24px;
+    min-width: 24px;
+}
+
+.refresh-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #0a84ff;
 }
 
 /* ── Scrollbar (thin, muted) ── */

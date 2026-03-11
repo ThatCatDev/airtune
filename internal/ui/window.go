@@ -15,14 +15,19 @@ import (
 // MainWindow is the primary application window.
 type MainWindow struct {
 	*gtk.ApplicationWindow
-	manager     *service.Manager
-	deviceList  *DeviceList
-	controls    *Controls
-	visualizer  *Visualizer
-	statusBar   *gtk.Label
+	manager    *service.Manager
+	stack      *gtk.Stack
+	splash     *Splash
+	mainBox    *gtk.Box
+	deviceList *DeviceList
+	controls   *Controls
+	visualizer *Visualizer
+	devConsole *DevConsole
+	statusBar  *gtk.Label
 	sourceDrop     *gtk.DropDown
-	sourceIDs      []string // parallel to dropdown items: "" = default, else device ID
-	sourceUpdating bool     // guards against callback during programmatic updates
+	sourceIDs      []string
+	sourceUpdating bool
+	splashDone     bool
 }
 
 // NewMainWindow creates the main window with all UI components.
@@ -41,7 +46,26 @@ func NewMainWindow(app *gtk.Application, manager *service.Manager) *MainWindow {
 }
 
 func (w *MainWindow) buildUI() {
-	// Main vertical box — 8pt grid spacing
+	// Stack to switch between splash and main view
+	w.stack = gtk.NewStack()
+	w.stack.SetTransitionType(gtk.StackTransitionTypeCrossfade)
+	w.stack.SetTransitionDuration(300)
+
+	// Splash screen
+	w.splash = NewSplash()
+	w.stack.AddNamed(w.splash.Box, "splash")
+
+	// Main UI
+	w.mainBox = w.buildMainUI()
+	w.stack.AddNamed(w.mainBox, "main")
+
+	// Start on splash
+	w.stack.SetVisibleChildName("splash")
+
+	w.SetChild(w.stack)
+}
+
+func (w *MainWindow) buildMainUI() *gtk.Box {
 	vbox := gtk.NewBox(gtk.OrientationVertical, 8)
 	vbox.SetMarginTop(20)
 	vbox.SetMarginBottom(16)
@@ -65,13 +89,12 @@ func (w *MainWindow) buildUI() {
 	w.visualizer = NewVisualizer()
 	vbox.Append(w.visualizer.DrawingArea)
 
-	// Section label for audio source
+	// Audio source section
 	sourceLabel := gtk.NewLabel("SOURCE")
 	sourceLabel.AddCSSClass("section-label")
 	sourceLabel.SetHAlign(gtk.AlignStart)
 	vbox.Append(sourceLabel)
 
-	// Audio source dropdown
 	w.sourceDrop = gtk.NewDropDown(gtk.NewStringList([]string{"Default"}), nil)
 	w.sourceDrop.AddCSSClass("channel-drop")
 	w.sourceDrop.SetMarginBottom(8)
@@ -87,16 +110,28 @@ func (w *MainWindow) buildUI() {
 	})
 	vbox.Append(w.sourceDrop)
 
-	// Populate audio devices asynchronously
 	go w.loadAudioDevices()
 
-	// Section label for device list
+	// Device list header
+	devicesHeader := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	devicesLabel := gtk.NewLabel("SPEAKERS & TVS")
 	devicesLabel.AddCSSClass("section-label")
 	devicesLabel.SetHAlign(gtk.AlignStart)
-	vbox.Append(devicesLabel)
+	devicesLabel.SetHExpand(true)
+	devicesHeader.Append(devicesLabel)
 
-	// Device list (scrollable, grouped card)
+	refreshBtn := gtk.NewButtonFromIconName("view-refresh-symbolic")
+	refreshBtn.AddCSSClass("refresh-btn")
+	refreshBtn.SetVAlign(gtk.AlignCenter)
+	refreshBtn.SetTooltipText("Refresh devices")
+	refreshBtn.ConnectClicked(func() {
+		w.statusBar.SetText("Searching for AirPlay devices...")
+		go w.manager.RefreshDevices()
+	})
+	devicesHeader.Append(refreshBtn)
+	vbox.Append(devicesHeader)
+
+	// Device list
 	w.deviceList = NewDeviceList(w.manager)
 	scrolled := gtk.NewScrolledWindow()
 	scrolled.SetVExpand(true)
@@ -108,7 +143,20 @@ func (w *MainWindow) buildUI() {
 	w.controls = NewControls(w.manager)
 	vbox.Append(w.controls.Box)
 
-	w.SetChild(vbox)
+	// Dev console (collapsible)
+	w.devConsole = NewDevConsole()
+	vbox.Append(w.devConsole.Expander)
+
+	return vbox
+}
+
+// transitionToMain switches from splash to the main UI.
+func (w *MainWindow) transitionToMain() {
+	if w.splashDone {
+		return
+	}
+	w.splashDone = true
+	w.stack.SetVisibleChildName("main")
 }
 
 // loadAudioDevices enumerates audio devices and populates the source dropdown.
@@ -157,6 +205,8 @@ func (w *MainWindow) HandleEvent(evt service.Event) {
 				w.statusBar.SetText("Searching for AirPlay devices...")
 			} else {
 				w.statusBar.SetText("")
+				// First devices arrived — leave the splash
+				w.transitionToMain()
 			}
 
 		case service.EventSessionState:
@@ -178,6 +228,9 @@ func (w *MainWindow) HandleEvent(evt service.Event) {
 
 		case service.EventVisualizerData:
 			w.visualizer.SetLevels(evt.Levels)
+
+		case service.EventAVSync:
+			w.controls.avSwitch.SetActive(evt.AVSync)
 
 		case service.EventError:
 			w.statusBar.SetText("Error: " + evt.Error.Error())

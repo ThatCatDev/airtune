@@ -1,5 +1,11 @@
 # AirTune
 
+claude --resume 09637016-7bea-4f9f-be98-61e77d51cab8
+
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe" sign /fd SHA256 /s My /sm /n "AirTune Dev" ".\AirTuneAudio\x64\Debug\AirTuneAudio.sys"
+
+& "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe" sign /fd SHA256 /s My /sm /n "AirTune Dev" ".\AirTuneAudio\x64\Debug\airtuneaudio.cat"
+
 AirTune streams your PC's audio to AirPlay speakers over the network. It captures system audio via WASAPI loopback, resamples to 44.1kHz, and sends it to one or more AirPlay 1 (RAOP) receivers.
 
 ## Features

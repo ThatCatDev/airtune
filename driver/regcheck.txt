@@ -1,0 +1,50 @@
+=== AirTune Driver Diagnostics === 
+Time: Sun 03/08/2026 10:23:30.10 
+ 
+
+HKEY_LOCAL_MACHINE\SOFTWARE\AirTune
+    Step_00    REG_DWORD    0xaaaaaaaa
+    Step_01    REG_DWORD    0x0
+    Step_02    REG_DWORD    0x0
+    Step_03    REG_DWORD    0x0
+    Step_04    REG_DWORD    0x0
+    Step_05    REG_DWORD    0x0
+    Step_06    REG_DWORD    0x0
+    Step_07    REG_DWORD    0x0
+    Step_08    REG_DWORD    0x0
+    Step_09    REG_DWORD    0x0
+    Step_15    REG_DWORD    0x0
+    Step_21    REG_DWORD    0x3
+    Step_22    REG_DWORD    0x0
+
+ 
+=== Device Status === 
+Microsoft PnP Utility
+
+Instance ID:                SW\{96E080C7-143C-11D1-B40F-00A0C9223196}\{3C0D501A-140B-11D1-B40F-00A0C9223196}
+Device Description:         Microsoft Streaming Service Proxy
+Class Name:                 MEDIA
+Class GUID:                 {4d36e96c-e325-11ce-bfc1-08002be10318}
+Manufacturer Name:          Microsoft
+Status:                     Disconnected
+Driver Name:                ksfilter.inf
+
+Instance ID:                ROOT\MEDIA\0000
+Device Description:         AirTune Virtual Speaker
+Class Name:                 MEDIA
+Class GUID:                 {4d36e96c-e325-11ce-bfc1-08002be10318}
+Manufacturer Name:          AirTune
+Status:                     Started
+Driver Name:                oem9.inf
+
+ 
+=== Service Status === 
+
+SERVICE_NAME: AirTuneAudio 
+        TYPE               : 1  KERNEL_DRIVER  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, NOT_PAUSABLE, IGNORES_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0

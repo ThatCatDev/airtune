@@ -34,9 +34,15 @@ type Session struct {
 	timing     *TimingChannel
 	control    *ControlChannel
 
-	// Latency: total buffer depth in frames reported to/from the receiver.
-	// Used by sync packets and exposed so the app can delay video to match.
-	latencyFrames uint32
+	// syncLatency: buffer depth in frames used in sync packets (PT 84).
+	// This tells the receiver how far ahead of real-time we're sending.
+	syncLatency uint32
+
+	// hwLatency: receiver's hardware/DAC buffer in frames (from Audio-Latency header).
+	hwLatency uint32
+
+	// networkRTT: measured round-trip time to the receiver (from NTP timing).
+	networkRTT time.Duration
 
 	// Lifecycle
 	cancel context.CancelFunc
@@ -79,18 +85,35 @@ func (s *Session) State() SessionState {
 	return s.state
 }
 
-// Latency returns the total audio latency in frames as reported by the receiver
-// (or our default). Convert to duration: time.Duration(s.Latency()) * time.Second / 44100.
+// Latency returns the sync buffer depth in frames (used in sync packets).
 func (s *Session) Latency() uint32 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.latencyFrames
+	return s.syncLatency
 }
 
-// LatencyDuration returns the total audio latency as a time.Duration.
+// LatencyDuration returns the estimated total audio latency from capture to speaker.
+// This is the amount video needs to be delayed to stay in sync.
+// Components: sync buffer depth + hardware buffer + network one-way transit.
 func (s *Session) LatencyDuration() time.Duration {
-	frames := s.Latency()
-	return time.Duration(float64(frames) / float64(SampleRate) * float64(time.Second))
+	s.mu.Lock()
+	syncFrames := s.syncLatency
+	hwFrames := s.hwLatency
+	rtt := s.networkRTT
+	s.mu.Unlock()
+
+	syncDur := time.Duration(float64(syncFrames) / float64(SampleRate) * float64(time.Second))
+	hwDur := time.Duration(float64(hwFrames) / float64(SampleRate) * float64(time.Second))
+	networkOneWay := rtt / 2
+
+	return syncDur + hwDur + networkOneWay
+}
+
+// SetNetworkRTT updates the measured network round-trip time.
+func (s *Session) SetNetworkRTT(rtt time.Duration) {
+	s.mu.Lock()
+	s.networkRTT = rtt
+	s.mu.Unlock()
 }
 
 func (s *Session) setState(state SessionState) {
@@ -191,7 +214,11 @@ func (s *Session) Connect(ctx context.Context) error {
 	// Use a temporary remote address for timing (device's RTSP port as placeholder;
 	// the real timing port comes back from SETUP). The listener doesn't need the
 	// remote address — it replies to whatever address sent the request.
-	s.timing = NewTimingChannel(s.udp.TimingConn, &net.UDPAddr{IP: net.ParseIP(s.config.Host), Port: s.config.Port})
+	s.timing = NewTimingChannel(s.udp.TimingConn, &net.UDPAddr{IP: net.ParseIP(s.config.Host), Port: s.config.Port}, func(rtt time.Duration) {
+		s.mu.Lock()
+		s.networkRTT = rtt
+		s.mu.Unlock()
+	})
 	s.timing.Run(sessionCtx)
 
 	// SETUP - negotiate transport
@@ -224,21 +251,31 @@ func (s *Session) Connect(ctx context.Context) error {
 	}
 
 	// Parse the receiver's Audio-Latency from the RECORD response.
-	// This is the receiver's minimum hardware/buffer latency in frames.
-	// We use it as the total latency for sync packets.
-	s.latencyFrames = uint32(LatencyFrames)
+	// This is the receiver's hardware/DAC buffer depth — NOT the sync latency.
+	// Sync packets use LatencyFrames (our sender-side buffer depth) which tells
+	// the receiver how far ahead of real-time we're sending audio.
+	s.syncLatency = uint32(LatencyFrames)
+	s.hwLatency = 0
 	if al, ok := recordResp.Headers["Audio-Latency"]; ok {
 		if parsed, err := strconv.ParseUint(al, 10, 32); err == nil && parsed > 0 {
-			s.latencyFrames = uint32(parsed)
+			s.hwLatency = uint32(parsed)
 			log.Printf("session: receiver Audio-Latency: %d frames (%.0fms)",
-				s.latencyFrames, float64(s.latencyFrames)/float64(SampleRate)*1000)
+				s.hwLatency, float64(s.hwLatency)/float64(SampleRate)*1000)
+			// If the receiver needs MORE buffer than our default, increase sync latency
+			if s.hwLatency > s.syncLatency {
+				s.syncLatency = s.hwLatency
+			}
 		}
 	} else {
-		log.Printf("session: no Audio-Latency in RECORD response, using default %d frames", s.latencyFrames)
+		log.Printf("session: no Audio-Latency in RECORD response, using default sync latency %d frames", s.syncLatency)
 	}
+	log.Printf("session: sync latency: %d frames (%.0fms), hw latency: %d frames (%.0fms), total: %v",
+		s.syncLatency, float64(s.syncLatency)/float64(SampleRate)*1000,
+		s.hwLatency, float64(s.hwLatency)/float64(SampleRate)*1000,
+		s.LatencyDuration())
 
-	// Start control channel with the negotiated latency (timing is already running)
-	s.control = NewControlChannel(s.udp.ControlConn, s.udp.ControlAddr, s.rtpBuilder, s.latencyFrames)
+	// Start control channel with the sync latency (timing is already running)
+	s.control = NewControlChannel(s.udp.ControlConn, s.udp.ControlAddr, s.rtpBuilder, s.syncLatency)
 	s.control.Run(sessionCtx)
 
 	// Start RTSP keep-alive to prevent the device from dropping the TCP connection

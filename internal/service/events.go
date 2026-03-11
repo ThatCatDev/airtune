@@ -19,6 +19,7 @@ const (
 	EventAudioDevices
 	EventError
 	EventLatency // fired after connect with the receiver's reported audio latency
+	EventAVSync  // fired when A/V sync toggle changes
 )
 
 // Event is emitted by the Manager to notify the UI of state changes.
@@ -46,4 +47,7 @@ type Event struct {
 
 	// EventLatency
 	Latency time.Duration // total audio output latency for this device
+
+	// EventAVSync
+	AVSync bool
 }

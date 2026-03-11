@@ -54,41 +54,60 @@ func NewBrowser(onChange func([]AirPlayDevice)) *Browser {
 func (b *Browser) Start(ctx context.Context) error {
 	ctx, b.cancel = context.WithCancel(ctx)
 
-	// --- _raop._tcp resolver ---
+	// The grandcat/zeroconf library uses exponential backoff that eventually
+	// stops querying. To work around this, we restart resolvers periodically
+	// so that mDNS queries keep flowing and new/returning devices are found.
+	const browseInterval = 30 * time.Second
+	const browseDuration = 10 * time.Second
+
+	// Do one immediate scan, then loop
+	for {
+		b.browseOnce(ctx, browseDuration)
+
+		select {
+		case <-ctx.Done():
+			close(b.done)
+			return nil
+		case <-time.After(browseInterval):
+		}
+	}
+}
+
+// browseOnceZeroconf creates fresh zeroconf resolvers that run for the given duration.
+// This is the fallback when the native platform API is unavailable.
+func (b *Browser) browseOnceZeroconf(ctx context.Context, duration time.Duration) {
+	scanCtx, scanCancel := context.WithTimeout(ctx, duration)
+	defer scanCancel()
+
+	// --- _raop._tcp ---
 	raopResolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
-		close(b.done)
-		return err
+		log.Printf("discovery: failed to create _raop._tcp resolver: %v", err)
+		return
 	}
 
 	raopEntries := make(chan *zeroconf.ServiceEntry)
 	go b.processRAOPEntries(raopEntries)
 
-	if err = raopResolver.Browse(ctx, raopService, "local.", raopEntries); err != nil {
-		b.cancel()
-		close(b.done)
-		return err
+	if err = raopResolver.Browse(scanCtx, raopService, "local.", raopEntries); err != nil {
+		log.Printf("discovery: failed to browse %s: %v", raopService, err)
+		return
 	}
 
-	// --- _airplay._tcp resolver ---
+	// --- _airplay._tcp ---
 	airplayResolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
-		// Non-fatal: we lose group info but RAOP discovery continues.
 		log.Printf("discovery: failed to create _airplay._tcp resolver: %v", err)
 	} else {
 		airplayEntries := make(chan *zeroconf.ServiceEntry)
 		go b.processAirPlayEntries(airplayEntries)
 
-		if err = airplayResolver.Browse(ctx, airplayService, "local.", airplayEntries); err != nil {
-			// Also non-fatal.
+		if err = airplayResolver.Browse(scanCtx, airplayService, "local.", airplayEntries); err != nil {
 			log.Printf("discovery: failed to browse %s: %v", airplayService, err)
 		}
 	}
 
-	// Wait until the context is cancelled (Stop was called or parent cancelled).
-	<-ctx.Done()
-	close(b.done)
-	return nil
+	<-scanCtx.Done()
 }
 
 // Stop stops the mDNS browser. It is safe to call multiple times.

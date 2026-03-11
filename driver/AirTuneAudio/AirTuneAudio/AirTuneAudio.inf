@@ -1,0 +1,71 @@
+;
+; AirTuneAudio.inf — INF for AirTune Virtual Audio Driver
+;
+; Root-enumerated WaveRT virtual audio render endpoint.
+; WHQL attestation compatible: DestDirs=13, PnpLockdown=1, no coinstallers.
+;
+
+[Version]
+Signature   = "$WINDOWS NT$"
+Class       = MEDIA
+ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider    = %ManufacturerName%
+CatalogFile = AirTuneAudio.cat
+DriverVer   = 03/08/2026,1.0.2.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13    ; Driver Store (mandatory for WHQL attestation)
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+AirTuneAudio.sys = 1,,
+
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64
+
+[Standard.NTamd64]
+%DeviceName% = AirTuneAudio_Install, Root\AirTuneAudio
+
+; ── Install Section ──
+
+[AirTuneAudio_Install]
+CopyFiles = AirTuneAudio_CopyFiles
+AddReg    = AirTuneAudio_AddReg
+
+[AirTuneAudio_CopyFiles]
+AirTuneAudio.sys
+
+[AirTuneAudio_AddReg]
+; Register as a PortCls audio adapter
+HKR,,AssociatedFilters,,"wdmaud,swmidi,redbook"
+HKR,,Driver,,AirTuneAudio.sys
+HKR,,NTMPDriver,,"AirTuneAudio.sys,sbemul.sys"
+
+HKR,Drivers,SubClasses,,"wave,mixer"
+HKR,Drivers\wave\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\wave\wdmaud.drv,Description,,%DeviceName%
+HKR,Drivers\mixer\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\mixer\wdmaud.drv,Description,,%DeviceName%
+
+; ── Service Section ──
+
+[AirTuneAudio_Install.Services]
+AddService = AirTuneAudio, 0x00000002, AirTuneAudio_Service
+
+[AirTuneAudio_Service]
+DisplayName   = %ServiceName%
+ServiceType   = 1                  ; SERVICE_KERNEL_DRIVER
+StartType     = 3                  ; SERVICE_DEMAND_START
+ErrorControl  = 1                  ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\AirTuneAudio.sys  ; Driver Store path
+
+; ── Strings ──
+
+[Strings]
+ManufacturerName = "AirTune"
+DeviceName       = "AirTune Virtual Speaker"
+ServiceName      = "AirTune Virtual Audio Driver"
+DiskName         = "AirTune Virtual Audio Driver Installation Disk"

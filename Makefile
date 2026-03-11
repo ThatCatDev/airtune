@@ -1,22 +1,18 @@
-.PHONY: build build-gui clean test
+.PHONY: build build-debug clean test
 
-# Build CLI-only (no CGo, no GTK4 required)
-build:
-	go build -o airtune.exe .
-
-# Build with GUI (requires MSYS2 + GTK4)
+# Build GUI app (requires MSYS2 + GTK4)
 # Ensure C:\msys64\mingw64\bin and C:\msys64\usr\bin are in PATH
-build-gui:
-	CGO_ENABLED=1 go build -o airtune.exe .
+build:
+	CGO_ENABLED=1 go build -ldflags "-s -w -H windowsgui" -o bundle/airtune.exe .
 
-# Run in CLI mode
-run:
-	go run . --cli
+# Build without hiding console (for debugging)
+build-debug:
+	CGO_ENABLED=1 go build -o bundle/airtune.exe .
 
 # Run tests
 test:
-	go test ./internal/...
+	CGO_ENABLED=1 go test ./internal/...
 
 # Clean build artifacts
 clean:
-	rm -f airtune.exe
+	rm -f bundle/airtune.exe

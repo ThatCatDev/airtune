@@ -1,0 +1,18 @@
+# Build artifacts (root level)
+/*.exe
+/*.exe~
+/*.dll
+/*.dll.old
+/*.log
+
+# IDE
+.idea/
+
+# Node
+node_modules/
+
+# Dist
+dist/
+
+# Bundle logs (but keep bundle DLLs and exe)
+bundle/*.log
