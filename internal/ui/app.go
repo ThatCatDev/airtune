@@ -3,7 +3,9 @@
 package ui
 
 import (
+	"context"
 	"log"
+	"os"
 
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
@@ -17,13 +19,15 @@ type App struct {
 	gtkApp  *gtk.Application
 	window  *MainWindow
 	manager *service.Manager
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // NewApp creates a new GTK4 application.
-func NewApp(manager *service.Manager) *App {
-	app := &App{
-		manager: manager,
-	}
+// Pass nil for manager — it will be created after the window is visible.
+func NewApp(_ *service.Manager) *App {
+	app := &App{}
+	app.ctx, app.cancel = context.WithCancel(context.Background())
 
 	app.gtkApp = gtk.NewApplication("com.airtune.app", gio.ApplicationFlagsNone)
 	app.gtkApp.ConnectActivate(func() {
@@ -39,18 +43,36 @@ func (a *App) Run() int {
 }
 
 func (a *App) onActivate() {
-	// Load CSS and custom device icons
+	// Load CSS and custom device icons — lightweight, no blocking
 	loadCSS(a.gtkApp)
 	setupCustomIcons()
 
-	// Create main window
-	a.window = NewMainWindow(a.gtkApp, a.manager)
+	// Show window immediately with splash screen (no manager yet)
+	a.window = NewMainWindow(a.gtkApp, nil)
 	a.window.Show()
 
-	// Start consuming manager events
-	go a.consumeEvents()
+	log.Println("ui: window visible")
 
-	log.Println("ui: activated")
+	// Initialize manager and heavy services in background
+	go a.initManager()
+}
+
+func (a *App) initManager() {
+	a.manager = service.NewManager()
+	a.manager.Start(a.ctx)
+
+	// Wire up the window to receive manager events
+	a.window.SetManager(a.manager)
+
+	tray := NewTray(a.manager, nil, func() {
+		a.manager.Stop()
+		a.cancel()
+		os.Exit(0)
+	})
+	go tray.Run()
+
+	// Start consuming events
+	a.consumeEvents()
 }
 
 func loadCSS(app *gtk.Application) {

@@ -3,13 +3,11 @@
 package main
 
 import (
-	"context"
 	"io"
 	"log"
 	"os"
 	"runtime"
 
-	"airtune/internal/service"
 	"airtune/internal/ui"
 )
 
@@ -31,19 +29,7 @@ func main() {
 
 	ui.SetVersion(version)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	manager := service.NewManager()
-	manager.Start(ctx)
-	defer manager.Stop()
-
-	tray := ui.NewTray(manager, nil, func() {
-		cancel()
-		os.Exit(0)
-	})
-	go tray.Run()
-
-	app := ui.NewApp(manager)
+	// Launch GTK immediately — manager starts in background after window is visible
+	app := ui.NewApp(nil)
 	os.Exit(app.Run())
 }

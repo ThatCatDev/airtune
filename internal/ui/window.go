@@ -15,10 +15,10 @@ import (
 // MainWindow is the primary application window.
 type MainWindow struct {
 	*gtk.ApplicationWindow
+	gtkApp     *gtk.Application
 	manager    *service.Manager
 	stack      *gtk.Stack
 	splash     *Splash
-	mainBox    *gtk.Box
 	deviceList *DeviceList
 	controls   *Controls
 	visualizer *Visualizer
@@ -30,39 +30,45 @@ type MainWindow struct {
 	splashDone     bool
 }
 
-// NewMainWindow creates the main window with all UI components.
-func NewMainWindow(app *gtk.Application, manager *service.Manager) *MainWindow {
+// NewMainWindow creates the main window — initially shows only the splash.
+func NewMainWindow(app *gtk.Application, _ *service.Manager) *MainWindow {
 	win := gtk.NewApplicationWindow(app)
 	win.SetTitle("AirTune")
 	win.SetDefaultSize(400, 600)
 
 	w := &MainWindow{
 		ApplicationWindow: win,
-		manager:           manager,
+		gtkApp:            app,
 	}
 
-	w.buildUI()
-	return w
-}
-
-func (w *MainWindow) buildUI() {
-	// Stack to switch between splash and main view
+	// Stack with splash only — main UI is built when manager is ready
 	w.stack = gtk.NewStack()
 	w.stack.SetTransitionType(gtk.StackTransitionTypeCrossfade)
 	w.stack.SetTransitionDuration(300)
 
-	// Splash screen
 	w.splash = NewSplash()
 	w.stack.AddNamed(w.splash.Box, "splash")
-
-	// Main UI
-	w.mainBox = w.buildMainUI()
-	w.stack.AddNamed(w.mainBox, "main")
-
-	// Start on splash
 	w.stack.SetVisibleChildName("splash")
 
 	w.SetChild(w.stack)
+	return w
+}
+
+// SetManager wires up the manager after it has been initialized in the background.
+// Must be called from any thread — schedules UI work on the GTK main thread.
+func (w *MainWindow) SetManager(manager *service.Manager) {
+	glib.IdleAdd(func() {
+		w.manager = manager
+
+		// Now build the full main UI
+		mainBox := w.buildMainUI()
+		w.stack.AddNamed(mainBox, "main")
+
+		// Load audio devices
+		go w.loadAudioDevices()
+
+		log.Println("ui: manager ready, main UI built")
+	})
 }
 
 func (w *MainWindow) buildMainUI() *gtk.Box {
@@ -100,7 +106,7 @@ func (w *MainWindow) buildMainUI() *gtk.Box {
 	w.sourceDrop.SetMarginBottom(8)
 	w.sourceIDs = []string{""}
 	w.sourceDrop.NotifyProperty("selected", func() {
-		if w.sourceUpdating {
+		if w.sourceUpdating || w.manager == nil {
 			return
 		}
 		idx := w.sourceDrop.Selected()
@@ -109,8 +115,6 @@ func (w *MainWindow) buildMainUI() *gtk.Box {
 		}
 	})
 	vbox.Append(w.sourceDrop)
-
-	go w.loadAudioDevices()
 
 	// Device list header
 	devicesHeader := gtk.NewBox(gtk.OrientationHorizontal, 0)
@@ -125,6 +129,9 @@ func (w *MainWindow) buildMainUI() *gtk.Box {
 	refreshBtn.SetVAlign(gtk.AlignCenter)
 	refreshBtn.SetTooltipText("Refresh devices")
 	refreshBtn.ConnectClicked(func() {
+		if w.manager == nil {
+			return
+		}
 		w.statusBar.SetText("Searching for AirPlay devices...")
 		go w.manager.RefreshDevices()
 	})
@@ -161,6 +168,9 @@ func (w *MainWindow) transitionToMain() {
 
 // loadAudioDevices enumerates audio devices and populates the source dropdown.
 func (w *MainWindow) loadAudioDevices() {
+	if w.manager == nil {
+		return
+	}
 	devices, err := w.manager.GetAudioDevices()
 	if err != nil {
 		log.Printf("ui: enumerate audio devices: %v", err)
@@ -173,7 +183,10 @@ func (w *MainWindow) loadAudioDevices() {
 
 // updateSourceDropdown rebuilds the source dropdown with the given devices.
 func (w *MainWindow) updateSourceDropdown(devices []audio.AudioDevice) {
-	configuredID := w.manager.GetAudioDevice()
+	configuredID := ""
+	if w.manager != nil {
+		configuredID = w.manager.GetAudioDevice()
+	}
 
 	names := []string{"Default"}
 	ids := []string{""}
@@ -200,40 +213,59 @@ func (w *MainWindow) HandleEvent(evt service.Event) {
 	glib.IdleAdd(func() {
 		switch evt.Type {
 		case service.EventDevicesChanged:
-			w.deviceList.UpdateDevices(evt.Devices)
-			if len(evt.Devices) == 0 {
-				w.statusBar.SetText("Searching for AirPlay devices...")
-			} else {
-				w.statusBar.SetText("")
-				// First devices arrived — leave the splash
+			if w.deviceList != nil {
+				w.deviceList.UpdateDevices(evt.Devices)
+			}
+			if w.statusBar != nil {
+				if len(evt.Devices) == 0 {
+					w.statusBar.SetText("Searching for AirPlay devices...")
+				} else {
+					w.statusBar.SetText("")
+				}
+			}
+			if len(evt.Devices) > 0 {
 				w.transitionToMain()
 			}
 
 		case service.EventSessionState:
-			w.deviceList.UpdateSessionState(evt.DeviceID, evt.SessionState)
+			if w.deviceList != nil {
+				w.deviceList.UpdateSessionState(evt.DeviceID, evt.SessionState)
+			}
 
 		case service.EventAppState:
-			w.controls.UpdateState(evt.AppState)
-			switch evt.AppState {
-			case service.AppStateIdle:
-				w.statusBar.SetText("Not connected")
-			case service.AppStateStreaming:
-				w.statusBar.SetText("Streaming")
-			case service.AppStatePaused:
-				w.statusBar.SetText("Paused")
+			if w.controls != nil {
+				w.controls.UpdateState(evt.AppState)
+			}
+			if w.statusBar != nil {
+				switch evt.AppState {
+				case service.AppStateIdle:
+					w.statusBar.SetText("Not connected")
+				case service.AppStateStreaming:
+					w.statusBar.SetText("Streaming")
+				case service.AppStatePaused:
+					w.statusBar.SetText("Paused")
+				}
 			}
 
 		case service.EventAudioDevices:
-			w.updateSourceDropdown(evt.AudioDevices)
+			if w.sourceDrop != nil {
+				w.updateSourceDropdown(evt.AudioDevices)
+			}
 
 		case service.EventVisualizerData:
-			w.visualizer.SetLevels(evt.Levels)
+			if w.visualizer != nil {
+				w.visualizer.SetLevels(evt.Levels)
+			}
 
 		case service.EventAVSync:
-			w.controls.avSwitch.SetActive(evt.AVSync)
+			if w.controls != nil {
+				w.controls.avSwitch.SetActive(evt.AVSync)
+			}
 
 		case service.EventError:
-			w.statusBar.SetText("Error: " + evt.Error.Error())
+			if w.statusBar != nil {
+				w.statusBar.SetText("Error: " + evt.Error.Error())
+			}
 		}
 	})
 }
