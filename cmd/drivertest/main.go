@@ -31,7 +31,7 @@ func main() {
 	}
 	fmt.Println("hooktest: hook enabled!")
 	fmt.Println("hooktest: open a NEW Chrome window and play a video.")
-	fmt.Println("hooktest: check %TEMP%\\airtune_sync.log for debug output.")
+	fmt.Printf("hooktest: check %%TEMP%%\\airtune_sync.log for debug output.\n")
 	fmt.Println("hooktest: press Ctrl+C to disable and exit.")
 
 	// Keep running with a message pump (needed for SetWindowsHookEx to dispatch)

@@ -55,29 +55,29 @@ var cbVtbl = &volumeCallbackVtbl{
 	OnNotify:       syscall.NewCallback(cbOnNotify),
 }
 
-func cbQueryInterface(this, riid, ppvObject uintptr) uintptr {
-	*(*uintptr)(unsafe.Pointer(ppvObject)) = this
-	cb := (*volumeCallback)(unsafe.Pointer(this))
+func cbQueryInterface(this, riid, ppvObject unsafe.Pointer) uintptr {
+	*(*unsafe.Pointer)(ppvObject) = this
+	cb := (*volumeCallback)(this)
 	atomic.AddInt32(&cb.refCount, 1)
 	return 0 // S_OK
 }
 
-func cbAddRef(this uintptr) uintptr {
-	cb := (*volumeCallback)(unsafe.Pointer(this))
+func cbAddRef(this unsafe.Pointer) uintptr {
+	cb := (*volumeCallback)(this)
 	return uintptr(atomic.AddInt32(&cb.refCount, 1))
 }
 
-func cbRelease(this uintptr) uintptr {
-	cb := (*volumeCallback)(unsafe.Pointer(this))
+func cbRelease(this unsafe.Pointer) uintptr {
+	cb := (*volumeCallback)(this)
 	return uintptr(atomic.AddInt32(&cb.refCount, -1))
 }
 
-func cbOnNotify(this, pNotify uintptr) uintptr {
-	cb := (*volumeCallback)(unsafe.Pointer(this))
+func cbOnNotify(this, pNotify unsafe.Pointer) uintptr {
+	cb := (*volumeCallback)(this)
 	if atomic.LoadInt32(&cb.closed) != 0 {
 		return 0
 	}
-	data := (*audioVolumeNotificationData)(unsafe.Pointer(pNotify))
+	data := (*audioVolumeNotificationData)(pNotify)
 	select {
 	case cb.ch <- VolumeChange{Level: data.FMasterVolume, Muted: data.BMuted != 0}:
 	default:

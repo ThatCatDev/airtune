@@ -118,10 +118,10 @@ func onBrowseCallback(status uintptr, queryCtx uintptr, pRecord uintptr) uintptr
 	// Walk DNS_RECORD linked list for PTR records
 	// DNS_RECORD layout (amd64): pNext @0, pName @8, wType @16, Data @32
 	// PTR Data: pNameHost @0 (a PWSTR)
-	for rec := pRecord; rec != 0; {
-		wType := *(*uint16)(unsafe.Pointer(rec + 16))
+	for p := unsafe.Add(nil, int(pRecord)); p != nil; {
+		wType := *(*uint16)(unsafe.Add(p, 16))
 		if wType == dnsTypePTR {
-			pName := *(*uintptr)(unsafe.Pointer(rec + 32))
+			pName := *(*uintptr)(unsafe.Add(p, 32))
 			if pName != 0 {
 				name := utf16PtrToGoString(pName)
 				select {
@@ -130,7 +130,11 @@ func onBrowseCallback(status uintptr, queryCtx uintptr, pRecord uintptr) uintptr
 				}
 			}
 		}
-		rec = *(*uintptr)(unsafe.Pointer(rec)) // pNext
+		next := *(*uintptr)(p) // pNext
+		if next == 0 {
+			break
+		}
+		p = unsafe.Add(nil, int(next))
 	}
 	procDnsFree.Call(pRecord, dnsFreeRecordList)
 	return 0
@@ -360,41 +364,45 @@ func resolveNativeInstance(ctx context.Context, instanceName string, service str
 //	64: dwInterfaceIndex uint32
 func parseNativeServiceInstance(ptr uintptr, instanceName string, service string) *zeroconf.ServiceEntry {
 	entry := zeroconf.NewServiceEntry(instanceName, service, "local.")
+	base := unsafe.Add(nil, int(ptr))
 
 	// Host name
-	pHost := *(*uintptr)(unsafe.Pointer(ptr + 8))
+	pHost := *(*uintptr)(unsafe.Add(base, 8))
 	if pHost != 0 {
 		entry.HostName = utf16PtrToGoString(pHost)
 	}
 
 	// IPv4 address
-	pIP4 := *(*uintptr)(unsafe.Pointer(ptr + 16))
+	pIP4 := *(*uintptr)(unsafe.Add(base, 16))
 	if pIP4 != 0 {
 		ip := make(net.IP, 4)
-		copy(ip, (*[4]byte)(unsafe.Pointer(pIP4))[:])
+		ip4Ptr := unsafe.Add(nil, int(pIP4))
+		copy(ip, (*[4]byte)(ip4Ptr)[:])
 		entry.AddrIPv4 = []net.IP{ip}
 	}
 
 	// Port
-	entry.Port = int(*(*uint16)(unsafe.Pointer(ptr + 32)))
+	entry.Port = int(*(*uint16)(unsafe.Add(base, 32)))
 
 	// TXT properties (key=value pairs)
-	propCount := *(*uint32)(unsafe.Pointer(ptr + 40))
+	propCount := *(*uint32)(unsafe.Add(base, 40))
 	if propCount > 0 && propCount < 256 {
-		keysBase := *(*uintptr)(unsafe.Pointer(ptr + 48))
-		valsBase := *(*uintptr)(unsafe.Pointer(ptr + 56))
+		keysBase := *(*uintptr)(unsafe.Add(base, 48))
+		valsBase := *(*uintptr)(unsafe.Add(base, 56))
 		if keysBase != 0 {
-			ptrSize := unsafe.Sizeof(uintptr(0))
+			ptrSize := int(unsafe.Sizeof(uintptr(0)))
 			entry.Text = make([]string, 0, propCount)
 			for i := uint32(0); i < propCount; i++ {
-				kp := *(*uintptr)(unsafe.Pointer(keysBase + uintptr(i)*ptrSize))
+				kBase := unsafe.Add(nil, int(keysBase))
+				kp := *(*uintptr)(unsafe.Add(kBase, int(i)*ptrSize))
 				key := ""
 				if kp != 0 {
 					key = utf16PtrToGoString(kp)
 				}
 				val := ""
 				if valsBase != 0 {
-					vp := *(*uintptr)(unsafe.Pointer(valsBase + uintptr(i)*ptrSize))
+					vBase := unsafe.Add(nil, int(valsBase))
+					vp := *(*uintptr)(unsafe.Add(vBase, int(i)*ptrSize))
 					if vp != 0 {
 						val = utf16PtrToGoString(vp)
 					}
@@ -416,9 +424,10 @@ func utf16PtrToGoString(ptr uintptr) string {
 	if ptr == 0 {
 		return ""
 	}
+	base := unsafe.Add(nil, int(ptr))
 	n := 0
 	for {
-		ch := *(*uint16)(unsafe.Pointer(ptr + uintptr(n)*2))
+		ch := *(*uint16)(unsafe.Add(base, n*2))
 		if ch == 0 {
 			break
 		}
@@ -432,7 +441,7 @@ func utf16PtrToGoString(ptr uintptr) string {
 	}
 	buf := make([]uint16, n)
 	for i := 0; i < n; i++ {
-		buf[i] = *(*uint16)(unsafe.Pointer(ptr + uintptr(i)*2))
+		buf[i] = *(*uint16)(unsafe.Add(base, i*2))
 	}
 	return syscall.UTF16ToString(buf)
 }

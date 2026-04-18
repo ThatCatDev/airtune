@@ -93,7 +93,7 @@ type AVSyncHook struct {
 	mu       sync.Mutex
 	active   bool
 	hMapping syscall.Handle
-	baseAddr uintptr
+	baseAddr unsafe.Pointer
 	hDLL     syscall.Handle
 	hHook    uintptr
 	dllPath  string
@@ -177,17 +177,17 @@ func (h *AVSyncHook) Enable(latencyHNS int64) error {
 	}
 	h.hMapping = syscall.Handle(r)
 
-	addr, _, e := mapViewOfFile.Call(
+	addr, _, e2 := mapViewOfFile.Call(
 		uintptr(h.hMapping), fileMapWrite|fileMapRead, 0, 0, syncShmSize,
 	)
 	if addr == 0 {
 		syscall.CloseHandle(h.hMapping)
 		h.hMapping = 0
-		return fmt.Errorf("avsync: MapViewOfFile: %v", e)
+		return fmt.Errorf("avsync: MapViewOfFile: %v", e2)
 	}
-	h.baseAddr = addr
+	h.baseAddr = unsafe.Add(nil, int(addr))
 
-	layout := (*syncShmLayout)(unsafe.Pointer(addr))
+	layout := (*syncShmLayout)(h.baseAddr)
 	layout.Magic = syncShmMagic
 	layout.Version = syncShmVersion
 	layout.SampleRate = 44100
@@ -384,7 +384,7 @@ func injectDLL(pid uint32, dllPath string) error {
 func (h *AVSyncHook) SetLatency(latencyHNS int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.active && h.baseAddr != 0 {
+	if h.active && h.baseAddr != nil {
 		h.writeLatency(latencyHNS, true)
 	}
 }
@@ -427,10 +427,10 @@ func (h *AVSyncHook) IsActive() bool {
 }
 
 func (h *AVSyncHook) writeLatency(hns int64, enabled bool) {
-	if h.baseAddr == 0 {
+	if h.baseAddr == nil {
 		return
 	}
-	layout := (*syncShmLayout)(unsafe.Pointer(h.baseAddr))
+	layout := (*syncShmLayout)(h.baseAddr)
 	atomic.StoreInt64(&layout.LatencyHns, hns)
 	if enabled {
 		atomic.StoreUint32(&layout.Enabled, 1)
@@ -440,9 +440,9 @@ func (h *AVSyncHook) writeLatency(hns int64, enabled bool) {
 }
 
 func (h *AVSyncHook) cleanupShm() {
-	if h.baseAddr != 0 {
-		unmapViewOfFile.Call(h.baseAddr)
-		h.baseAddr = 0
+	if h.baseAddr != nil {
+		unmapViewOfFile.Call(uintptr(h.baseAddr))
+		h.baseAddr = nil
 	}
 	if h.hMapping != 0 {
 		syscall.CloseHandle(h.hMapping)
