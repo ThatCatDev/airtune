@@ -154,7 +154,7 @@ func (c *WASAPILoopbackCapturer) Start(ctx interface{}) (<-chan AudioChunk, erro
 	c.mu.Unlock()
 
 	initCh := make(chan initResult, 1)
-	out := make(chan AudioChunk, 8)
+	out := make(chan AudioChunk, 16)
 	derivedCtx, cancel := context.WithCancel(realCtx)
 	c.cancel = cancel
 	c.done = make(chan struct{})

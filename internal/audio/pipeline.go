@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"math"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -105,7 +106,7 @@ func (p *Pipeline) Stop() {
 // mode controls which stereo channel(s) the device receives.
 // Returns a channel that receives encoded audio packets.
 func (p *Pipeline) Subscribe(deviceID string, mode ChannelMode) <-chan EncodedPacket {
-	ch := make(chan EncodedPacket, 8)
+	ch := make(chan EncodedPacket, 32)
 	p.mu.Lock()
 	p.subscribers[deviceID] = &subscriber{ch: ch, mode: mode}
 	p.mu.Unlock()
@@ -289,8 +290,10 @@ func extractChannel(stereo []byte, mode ChannelMode) []byte {
 	return out
 }
 
-// convertTo16BitPCM converts audio data to 16-bit signed LE PCM.
+// convertTo16BitPCM converts audio data to 16-bit signed LE PCM with TPDF dithering.
 // WASAPI typically captures in 32-bit float; we need 16-bit for AirPlay.
+// TPDF (Triangular Probability Density Function) dither eliminates correlated
+// quantization distortion, improving perceived quality on quiet passages.
 func convertTo16BitPCM(chunk AudioChunk) []byte {
 	if chunk.Format.BitDepth == 16 {
 		return chunk.Data
@@ -307,15 +310,22 @@ func convertTo16BitPCM(chunk AudioChunk) []byte {
 				uint32(chunk.Data[i*4+1])<<8 |
 				uint32(chunk.Data[i*4+2])<<16 |
 				uint32(chunk.Data[i*4+3])<<24
-			f := float32FromBits(bits)
+			f := float64(float32FromBits(bits))
 
-			// Clamp and convert to int16
-			if f > 1.0 {
-				f = 1.0
-			} else if f < -1.0 {
-				f = -1.0
+			// Apply TPDF dither: two uniform random values summed give
+			// a triangular distribution in [-1, +1] LSB range.
+			// This decorrelates quantization error from the signal.
+			dither := (rand.Float64() - rand.Float64()) / 32767.0
+			f += dither
+
+			// Clamp to int16 range and round
+			scaled := f * 32767.0
+			if scaled > 32767.0 {
+				scaled = 32767.0
+			} else if scaled < -32768.0 {
+				scaled = -32768.0
 			}
-			s := int16(f * 32767)
+			s := int16(math.Round(scaled))
 
 			// Write int16 LE
 			out[i*2] = byte(s)
