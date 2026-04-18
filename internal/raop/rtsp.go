@@ -306,6 +306,13 @@ func (c *RTSPClient) readResponse() (*RTSPResponse, error) {
 	}
 
 	if code != 200 {
+		// Log response details for non-200 to aid debugging (e.g. 403 auth issues)
+		for k, v := range headers {
+			log.Printf("RTSP <<< %s: %s", k, v)
+		}
+		if body != "" {
+			log.Printf("RTSP <<< body: %s", body)
+		}
 		return resp, fmt.Errorf("rtsp %s error: %d %s", method(statusLine), code, status)
 	}
 

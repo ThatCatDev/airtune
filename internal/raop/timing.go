@@ -41,6 +41,7 @@ func (t *TimingChannel) SetRemoteAddr(addr *net.UDPAddr) {
 
 // Run starts the timing channel. It listens for timing requests and sends periodic sync packets.
 func (t *TimingChannel) Run(ctx context.Context) {
+	log.Printf("timing: listening on %s for requests from %s", t.conn.LocalAddr(), t.remoteAddr)
 	// Start listener for timing requests from the device
 	go t.listenRequests(ctx)
 
@@ -84,10 +85,13 @@ func (t *TimingChannel) listenRequests(ctx context.Context) {
 		switch pt {
 		case PayloadTiming:
 			// Timing request from device — respond with PT 83
+			log.Printf("timing: received request (PT %d) from %s (%d bytes)", pt, addr, n)
 			refSecs := binary.BigEndian.Uint32(buf[24:28])
 			refFrac := binary.BigEndian.Uint32(buf[28:32])
 			resp := t.buildTimingResponse(refSecs, refFrac)
-			t.conn.WriteToUDP(resp, addr)
+			if _, err := t.conn.WriteToUDP(resp, addr); err != nil {
+				log.Printf("timing: send response error: %v", err)
+			}
 
 		case PayloadTimingResponse:
 			// Timing response to our request — measure RTT.

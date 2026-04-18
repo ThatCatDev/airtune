@@ -154,7 +154,8 @@ func (b *Browser) processRAOPEntries(entries <-chan *zeroconf.ServiceEntry) {
 		b.mu.Unlock()
 
 		if changed {
-			log.Printf("discovery: found device %s", dev)
+			log.Printf("discovery: found device %s (et=%v ft=0x%x model=%s fw=%s txt=%v)",
+				dev, dev.Encryption, dev.Features, dev.Model, dev.FirmwareVer, entry.Text)
 			b.onChange(list)
 		}
 	}
