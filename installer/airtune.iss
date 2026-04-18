@@ -29,3 +29,12 @@ Name: "{autodesktop}\AirTune"; Filename: "{app}\airtune.exe"; WorkingDir: "{app}
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
+
+[Run]
+; Add Windows Firewall rules so AirPlay UDP timing/control/audio packets can reach the app.
+; The installer runs elevated, so these succeed without a UAC prompt at runtime.
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""AirTune"" dir=in action=allow program=""{app}\airtune.exe"" protocol=UDP profile=private,public"; Flags: runhidden
+Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""AirTune"" dir=in action=allow program=""{app}\airtune.exe"" protocol=TCP profile=private,public"; Flags: runhidden
+
+[UninstallRun]
+Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""AirTune"""; Flags: runhidden
